@@ -10,9 +10,9 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     public static double _surfStats[] = new double[BINS];
 	private Point2D.Double myLocation;
 	private Point2D.Double enemyLocation;
-	public ArrayList _enemyWaves;
-    public ArrayList _surfDirections;
-    public ArrayList _surfAbsBearings;
+	private ArrayList<EnemyWave> _enemyWaves;
+    private ArrayList<Integer> _surfDirections;
+    private ArrayList<Double> _surfAbsBearings;
 
   // Variaveis para métricas de desempenho
   private int shotsFired = 0; // tiros que o robo disparou
