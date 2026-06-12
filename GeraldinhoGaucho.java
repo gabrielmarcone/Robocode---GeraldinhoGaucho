@@ -14,6 +14,17 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     public ArrayList _surfDirections;
     public ArrayList _surfAbsBearings;
 
+  // Variaveis para métricas de desempenho
+  private int shotsFired = 0; // tiros que o robo disparou
+  private int shotsHit = 0;  // tiros que acertaram o inimigo
+  private int shotsReceived = 0; // tiros que o inimigo acertou em nós
+  private double energySum = 0; // soma de energia para calcular média
+  private int energySamples = 0; // quantidade de amostras coletadas
+  private int wins = 0; // vitórias acumuladas
+  private int deaths = 0; // derrotas acumuladas
+  private int roundNumber = 0; // número da rodada atual
+
+
     public static double _oppEnergy = 100.0;
 
 	private Rectangle2D battleField;
@@ -193,6 +204,9 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 		// Utilizando a tecnica de Wave Surfing como movimentacao
 		myLocation = new Point2D.Double(getX(), getY());
 
+    energySum += getEnergy();
+    energySamples++;
+
         double lateralVelocity = getVelocity()*Math.sin(e.getBearingRadians());
         double absBearing = e.getBearingRadians() + getHeadingRadians();
 
@@ -269,6 +283,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
                 _enemyWaves.remove(_enemyWaves.lastIndexOf(hitWave));
             }
         }
+    shotsReceived++;
 	}
 
 	public double wallSmoothing(Point2D.Double botLocation, double angle, int orientation) {
@@ -316,6 +331,74 @@ public class GeraldinhoGaucho extends AdvancedRobot {
            }
             robot.setAhead(100);
         }
+    }
+
+    /* ***************************************************************
+    * Metodo: onBulletFired
+    * Funcao: Registra cada tiro disparado pelo robo.
+    * Parametros: BulletFiredEvent e - evento do disparo.
+    * Retorno: void
+    *************************************************************** */
+    //public void onBulletFired(BulletFiredEvent e) {
+    //    shotsFired++;
+    //}
+
+    /* ***************************************************************
+    * Metodo: onBulletHit
+    * Funcao: Registra quando um tiro nosso acerta o inimigo.
+    * Parametros: BulletHitEvent e - evento de acerto.
+    * Retorno: void
+    *************************************************************** */
+    public void onBulletHit(BulletHitEvent e) {
+        shotsHit++;
+    }
+
+    /* ***************************************************************
+    * Metodo: onWin
+    * Funcao: Registra vitoria e imprime estatisticas da rodada.
+    * Parametros: WinEvent e - evento de vitoria.
+    * Retorno: void
+    *************************************************************** */
+    public void onWin(WinEvent e) {
+        wins++;
+        roundNumber++;
+        printRoundStats("VITÓRIA");
+    }
+
+    /* ***************************************************************
+    * Metodo: onDeath
+    * Funcao: Registra derrota e imprime estatisticas da rodada.
+    * Parametros: DeathEvent e - evento de morte.
+    * Retorno: void
+    *************************************************************** */
+    public void onDeath(DeathEvent e) {
+        deaths++;
+        roundNumber++;
+        printRoundStats("DERROTA");
+    }
+
+    /* ***************************************************************
+    * Metodo: printRoundStats
+    * Funcao: Imprime um resumo das metricas da rodada no console.
+    * Parametros: String resultado - "VITÓRIA" ou "DERROTA".
+    * Retorno: void
+    *************************************************************** */
+    private void printRoundStats(String resultado) {
+        double accuracy = (shotsFired > 0)
+            ? (double) shotsHit / shotsFired * 100.0
+            : 0.0;
+        double avgEnergy = (energySamples > 0)
+            ? energySum / energySamples
+            : 0.0;
+
+        out.println("=== RODADA " + roundNumber + " [" + resultado + "] ===");
+        out.println("  Tiros disparados : " + shotsFired);
+        out.println("  Tiros acertados  : " + shotsHit);
+        out.println("  Taxa de acerto   : " + String.format("%.1f", accuracy) + "%");
+        out.println("  Tiros recebidos  : " + shotsReceived);
+        out.println("  Energia média    : " + String.format("%.1f", avgEnergy));
+        out.println("  Placar geral     : " + wins + "V / " + deaths + "D");
+        out.println("  Acurácia surfing : " + shotsReceived + " hits levados");
     }
 
 	class EnemyWave {
