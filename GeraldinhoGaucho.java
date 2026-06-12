@@ -22,7 +22,6 @@ public class GeraldinhoGaucho extends AdvancedRobot {
   private int energySamples = 0; // quantidade de amostras coletadas
   private int wins = 0; // vitórias acumuladas
   private int deaths = 0; // derrotas acumuladas
-  private int roundNumber = 0; // número da rodada atual
 
 
     public static double _oppEnergy = 100.0;
@@ -361,7 +360,6 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     *************************************************************** */
     public void onWin(WinEvent e) {
         wins++;
-        roundNumber++;
         printRoundStats("VITÓRIA");
     }
 
@@ -373,7 +371,6 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     *************************************************************** */
     public void onDeath(DeathEvent e) {
         deaths++;
-        roundNumber++;
         printRoundStats("DERROTA");
     }
 
@@ -391,7 +388,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
             ? energySum / energySamples
             : 0.0;
 
-        out.println("=== RODADA " + roundNumber + " [" + resultado + "] ===");
+        out.println("=== RODADA " + getRoundNum() + " [" + resultado + "] ===");
         out.println("  Tiros disparados : " + shotsFired);
         out.println("  Tiros acertados  : " + shotsHit);
         out.println("  Taxa de acerto   : " + String.format("%.1f", accuracy) + "%");
