@@ -13,6 +13,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 	private ArrayList<EnemyWave> enemyWaves;
     private ArrayList<Integer> surfDirections;
     private ArrayList<Double> surfAbsBearings;
+      static final double A_LITTLE_LESS_THAN_HALF_PI = 1.25;
 
   // Variaveis para métricas de desempenho
   private int shotsFired = 0; // tiros que o robo disparou
@@ -98,9 +99,9 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 
         double goAngle = absoluteBearing(surfWave.fireLocation, myLocation);
         if (dangerLeft < dangerRight) {
-            goAngle = wallSmoothing(myLocation, goAngle - (Math.PI/2), -1);
+            goAngle = wallSmoothing(myLocation, goAngle - (A_LITTLE_LESS_THAN_HALF_PI), -1);
         } else {
-            goAngle = wallSmoothing(myLocation, goAngle + (Math.PI/2), 1);
+            goAngle = wallSmoothing(myLocation, goAngle + (A_LITTLE_LESS_THAN_HALF_PI), 1);
         }
 
         setBackAsFront(this, goAngle);
@@ -160,7 +161,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         boolean intercepted = false;
 
         do {    // the rest of these code comments are rozu's
-            moveAngle = wallSmoothing(predictedPosition, absoluteBearing(surfWave.fireLocation, predictedPosition) + (direction * (Math.PI/2)), direction) - predictedHeading;
+            moveAngle = wallSmoothing(predictedPosition, absoluteBearing(surfWave.fireLocation, predictedPosition) + (direction * (A_LITTLE_LESS_THAN_HALF_PI)), direction) - predictedHeading;
             moveDir = 1;
 
             if(Math.cos(moveAngle) < 0) {
@@ -315,7 +316,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 
     public static void setBackAsFront(AdvancedRobot robot, double goAngle) {
         double angle = Utils.normalRelativeAngle(goAngle - robot.getHeadingRadians());
-        if (Math.abs(angle) > (Math.PI/2)) {
+        if (Math.abs(angle) > (A_LITTLE_LESS_THAN_HALF_PI)) {
             if (angle < 0) {
                 robot.setTurnRightRadians(Math.PI + angle);
             } else {
