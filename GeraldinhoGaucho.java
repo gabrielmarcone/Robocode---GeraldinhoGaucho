@@ -7,12 +7,12 @@ import java.util.ArrayList;
 public class GeraldinhoGaucho extends AdvancedRobot {
 	// Variaveis para a tecnica de Wave Surfing
 	public static int BINS = 47;
-    public static double _surfStats[] = new double[BINS];
+    public static double surfStats[] = new double[BINS];
 	private Point2D.Double myLocation;
 	private Point2D.Double enemyLocation;
-	private ArrayList<EnemyWave> _enemyWaves;
-    private ArrayList<Integer> _surfDirections;
-    private ArrayList<Double> _surfAbsBearings;
+	private ArrayList<EnemyWave> enemyWaves;
+    private ArrayList<Integer> surfDirections;
+    private ArrayList<Double> surfAbsBearings;
 
   // Variaveis para métricas de desempenho
   private int shotsFired = 0; // tiros que o robo disparou
@@ -24,7 +24,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
   private int deaths = 0; // derrotas acumuladas
 
 
-    public static double _oppEnergy = 100.0;
+    public static double opponentEnergy = 100.0;
 
 	private Rectangle2D battleField;
     public static double WALL_STICK = 160;
@@ -50,9 +50,9 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 		battleField = new Rectangle2D.Double(18, 18, getBattleFieldWidth() - WALL_MARGIN, getBattleFieldHeight() - WALL_MARGIN);
 		
 		// Inicializa as variaveis para a tecnica de Wave Surfing
-		_surfDirections = new ArrayList<>();
-		_surfAbsBearings = new ArrayList<>();
-		_enemyWaves = new ArrayList<>();
+		surfDirections = new ArrayList<>();
+		surfAbsBearings = new ArrayList<>();
+		enemyWaves = new ArrayList<>();
 
 		// Laco principal do robo, onde o radar gira continuamente para escanear o ambiente
 		do {
@@ -67,14 +67,14 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 	* Retorno: void
 	*************************************************************** */
 	public void updateWaves() {
-		for (int x = 0; x < _enemyWaves.size(); x++) {
-			EnemyWave ew = (EnemyWave)_enemyWaves.get(x);
+		for (int i = 0; i < enemyWaves.size(); i++) {
+			EnemyWave ew = (EnemyWave)enemyWaves.get(i);
 
 			ew.distanceTraveled = (getTime() - ew.fireTime) * ew.bulletVelocity;
 			if (ew.distanceTraveled >
 				myLocation.distance(ew.fireLocation) + 50) {
-				_enemyWaves.remove(x);
-				x--;
+				enemyWaves.remove(i);
+				i--;
 			}
 		}
     }
@@ -116,8 +116,8 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         double closestDistance = Double.POSITIVE_INFINITY;
         EnemyWave surfWave = null;
 
-        for (int x = 0; x < _enemyWaves.size(); x++) {
-            EnemyWave ew = (EnemyWave)_enemyWaves.get(x);
+        for (int x = 0; x < enemyWaves.size(); x++) {
+            EnemyWave ew = (EnemyWave)enemyWaves.get(x);
             double distance = myLocation.distance(ew.fireLocation) - ew.distanceTraveled;
 
             if (distance > ew.bulletVelocity && distance < closestDistance) {
@@ -140,7 +140,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 	public double checkDanger(EnemyWave surfWave, int direction) {
         int index = getFactorIndex(surfWave, predictPosition(surfWave, direction));
 
-        return _surfStats[index];
+        return surfStats[index];
     }
 
 	public static int getFactorIndex(EnemyWave ew, Point2D.Double targetLocation) {
@@ -203,33 +203,33 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 		// Utilizando a tecnica de Wave Surfing como movimentacao
 		myLocation = new Point2D.Double(getX(), getY());
 
-    energySum += getEnergy();
-    energySamples++;
+        energySum += getEnergy();
+        energySamples++;
 
         double lateralVelocity = getVelocity()*Math.sin(e.getBearingRadians());
         double absBearing = e.getBearingRadians() + getHeadingRadians();
 
         setTurnRadarRightRadians(Utils.normalRelativeAngle(absBearing - getRadarHeadingRadians()) * 2);
 
-        _surfDirections.add(0, new Integer((lateralVelocity >= 0) ? 1 : -1));
-        _surfAbsBearings.add(0, new Double(absBearing + Math.PI));
+        surfDirections.add(0, new Integer((lateralVelocity >= 0) ? 1 : -1));
+        surfAbsBearings.add(0, new Double(absBearing + Math.PI));
 
 
-        double bulletPower = _oppEnergy - e.getEnergy();
+        double bulletPower = opponentEnergy - e.getEnergy();
 
-        if (bulletPower < 3.01 && bulletPower > 0.09 && _surfDirections.size() > 2) {
+        if (bulletPower < 3.01 && bulletPower > 0.09 && surfDirections.size() > 2 && enemyLocation != null) {
             EnemyWave ew = new EnemyWave();
             ew.fireTime = getTime() - 1;
             ew.bulletVelocity = bulletVelocity(bulletPower);
             ew.distanceTraveled = bulletVelocity(bulletPower);
-            ew.direction = ((Integer)_surfDirections.get(2)).intValue();
-            ew.directAngle = ((Double)_surfAbsBearings.get(2)).doubleValue();
+            ew.direction = ((Integer)surfDirections.get(2)).intValue();
+            ew.directAngle = ((Double)surfAbsBearings.get(2)).doubleValue();
             ew.fireLocation = (Point2D.Double)enemyLocation.clone(); // last tick
 
-            _enemyWaves.add(ew);
+            enemyWaves.add(ew);
         }
 
-        _oppEnergy = e.getEnergy();
+        opponentEnergy = e.getEnergy();
 
         // update after EnemyWave detection, because that needs the previous
         // enemy location as the source of the wave
@@ -248,7 +248,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
             // for the spot bin that we were hit on, add 1;
             // for the bins next to it, add 1 / 2;
             // the next one, add 1 / 5; and so on...
-            _surfStats[x] += 1.0 / (Math.pow(index - x, 2) + 1);
+            surfStats[x] += 1.0 / (Math.pow(index - x, 2) + 1);
         }
     }
 
@@ -259,15 +259,15 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 	* Retorno: void
 	*************************************************************** */
 	public void onHitByBullet(HitByBulletEvent e) {
-		// If the _enemyWaves collection is empty, we must have missed the
+		// If the enemyWaves collection is empty, we must have missed the
         // detection of this wave somehow.
-        if (!_enemyWaves.isEmpty()) {
+        if (!enemyWaves.isEmpty()) {
             Point2D.Double hitBulletLocation = new Point2D.Double(e.getBullet().getX(), e.getBullet().getY());
             EnemyWave hitWave = null;
 
             // look through the EnemyWaves, and find one that could've hit us.
-            for (int x = 0; x < _enemyWaves.size(); x++) {
-                EnemyWave ew = (EnemyWave)_enemyWaves.get(x);
+            for (int x = 0; x < enemyWaves.size(); x++) {
+                EnemyWave ew = (EnemyWave)enemyWaves.get(x);
 
                 if (Math.abs(ew.distanceTraveled - myLocation.distance(ew.fireLocation)) < 50 && Math.abs(bulletVelocity(e.getBullet().getPower()) - ew.bulletVelocity) < 0.001) {
                     hitWave = ew;
@@ -279,7 +279,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
                 logHit(hitWave, hitBulletLocation);
 
                 // We can remove this wave now, of course.
-                _enemyWaves.remove(_enemyWaves.lastIndexOf(hitWave));
+                enemyWaves.remove(enemyWaves.lastIndexOf(hitWave));
             }
         }
     shotsReceived++;
