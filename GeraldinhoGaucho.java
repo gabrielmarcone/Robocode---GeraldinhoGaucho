@@ -5,32 +5,33 @@ import java.awt.geom.*;
 import java.util.ArrayList;
 
 public class GeraldinhoGaucho extends AdvancedRobot {
-	// Variaveis para a tecnica de Wave Surfing
+	// ========== Wave Surfing ==========
 	public static int BINS = 47;
     public static double surfStats[] = new double[BINS];
-	private Point2D.Double myLocation;
-	private Point2D.Double enemyLocation;
-	private ArrayList<EnemyWave> enemyWaves;
+    private ArrayList<EnemyWave> enemyWaves;
     private ArrayList<Integer> surfDirections;
     private ArrayList<Double> surfAbsBearings;
-      static final double A_LITTLE_LESS_THAN_HALF_PI = 1.25;
+    static final double A_LITTLE_LESS_THAN_HALF_PI = 1.25;
 
-  // Variaveis para métricas de desempenho
-  private int shotsFired = 0; // tiros que o robo disparou
-  private int shotsHit = 0;  // tiros que acertaram o inimigo
-  private int shotsReceived = 0; // tiros que o inimigo acertou em nós
-  private double energySum = 0; // soma de energia para calcular média
-  private int energySamples = 0; // quantidade de amostras coletadas
-  private int wins = 0; // vitórias acumuladas
-  private int deaths = 0; // derrotas acumuladas
-
-
+    // ========== Localizacao ==========
+	private Point2D.Double myLocation;
+	private Point2D.Double enemyLocation;
     public static double opponentEnergy = 100.0;
 
+	// ========== Campo de Batalha ==========
 	private Rectangle2D battleField;
+    private final double WALL_MARGIN = 36;
     public static double WALL_STICK = 160;
 
-	private final double WALL_MARGIN = 36;
+    // ========== Metricas de Desempenho ==========
+    private int shotsFired = 0; // tiros que o robo disparou
+    private int shotsHit = 0;  // tiros que acertaram o inimigo
+    private int shotsReceived = 0; // tiros que o inimigo acertou em nós
+    private double energySum = 0; // soma de energia para calcular media
+    private int energySamples = 0; // quantidade de amostras coletadas
+    private int wins = 0; // vitórias acumuladas
+    private int deaths = 0; // derrotas acumuladas
+    
 	/* ***************************************************************
 	* Metodo: run
 	* Funcao: Metodo principal do robo, responsavel por executar a logica de movimento e combate.
@@ -144,6 +145,14 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         return surfStats[index];
     }
 
+    /* ***************************************************************
+    * Metodo: getFactorIndex
+    * Funcao: Metodo responsavel por calcular o indice do array de estatisticas de surf com base na posicao prevista do robo
+      em relacao a uma onda de inimigo, utilizando o angulo de escape e a direcao da onda.
+    * Parametros: EnemyWave ew - a onda de inimigo para a qual o indice sera calculado; Point2D.Double targetLocation - a
+      posicao prevista do robo.
+    * Retorno: int - o indice do array de estatisticas de surf correspondente a posicao prevista do robo em relacao a onda de inimigo.
+    *************************************************************** */
 	public static int getFactorIndex(EnemyWave ew, Point2D.Double targetLocation) {
         double offsetAngle = (absoluteBearing(ew.fireLocation, targetLocation) - ew.directAngle);
         double factor = Utils.normalRelativeAngle(offsetAngle) / maxEscapeAngle(ew.bulletVelocity) * ew.direction;
@@ -151,6 +160,18 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         return (int)limit(0, (factor * ((BINS - 1) / 2)) + ((BINS - 1) / 2), BINS - 1);
     }
 
+    /* ***************************************************************
+    * Metodo: predictPosition
+    * Funcao: Metodo responsavel por prever a posicao futura do robo com base na direcao de movimentacao escolhida e na onda de inimigo,
+      simulando o movimento do robo para avaliar o perigo das direcoes.
+    * Parametros: EnemyWave surfWave - a onda de inimigo para a qual a posicao sera prevista; int direction - a direcao de movimentacao escolhida
+      (-1 para esquerda, 1 para direita).
+    * Retorno: Point2D.Double - a posicao prevista do robo no futuro com base na direcao de movimentacao escolhida e na onda de inimigo.
+    * Obs: Este metodo simula o movimento do robo em ticks futuros, considerando a velocidade, a direcao e as limitacoes de movimento, para prever
+      onde o robo estaria em relacao a onda de inimigo. O loop continua ate que a posicao prevista esteja dentro do alcance da onda de inimigo ou ate
+      que um limite de ticks seja atingido, para evitar loops infinitos. O resultado desta previsao e utilizado para calcular o indice de perigo da
+      direcao escolhida, ajudando o robo a escolher a melhor direcao para evitar os tiros inimigos.
+    *************************************************************** */
 	public Point2D.Double predictPosition(EnemyWave surfWave, int direction) {
         Point2D.Double predictedPosition = (Point2D.Double)myLocation.clone();
         double predictedVelocity = getVelocity();
@@ -242,6 +263,15 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         // gun code would go here...
 	}
 
+    /* ***************************************************************
+    * Metodo: logHit
+    * Funcao: Metodo responsavel por registrar um hit recebido em relacao a uma onda de inimigo, atualizando as estatisticas
+      de surf para melhorar a escolha de direcao em futuras ondas.
+    * Parametros: EnemyWave ew - a onda de inimigo que causou o hit; Point2D.Double targetLocation - a posicao onde o robo foi atingido.
+    * Retorno: void
+    * Obs: Este metodo calcula o indice de perigo correspondente a posicao onde o robo foi atingido em relacao a onda de inimigo, e atualiza as estatisticas
+      de surf para que direcoes próximas a essa posicao sejam consideradas mais perigosas no futuro, ajudando o robo a evitar essas direcoes em ondas futuras.
+    *************************************************************** */
 	public void logHit(EnemyWave ew, Point2D.Double targetLocation) {
         int index = getFactorIndex(ew, targetLocation);
 
@@ -286,6 +316,13 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     shotsReceived++;
 	}
 
+    /* ***************************************************************
+    * Metodo: wallSmoothing
+    * Funcao: Metodo responsavel por ajustar o angulo de movimentacao do robo para evitar colisoes com as paredes, utilizando uma tecnica de "wall smoothing".
+    * Parametros: Point2D.Double botLocation - a posicao atual do robo; double angle - o angulo de movimentacao desejado; int orientation - a direcao de movimentacao escolhida
+      (-1 para esquerda, 1 para direita).
+    * Retorno: double - o angulo de movimentacao ajustado para evitar colisoes com as paredes, mantendo o robo dentro do campo de batalha.
+    ***************************************************************** */
 	public double wallSmoothing(Point2D.Double botLocation, double angle, int orientation) {
         while (!battleField.contains(project(botLocation, angle, WALL_STICK))) {
             angle += orientation*0.05;
@@ -293,27 +330,69 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         return angle;
     }
 
+    /* ***************************************************************
+    * Metodo: project
+    * Funcao: Metodo responsavel por calcular uma nova posicao com base em uma posicao de origem, um angulo e uma distancia, utilizado para prever posicoes
+      futuras do robo.
+    * Parametros: Point2D.Double sourceLocation - a posicao de origem; double angle - o angulo de movimentacao; double length - a distancia a ser projetada.
+    * Retorno: Point2D.Double - a nova posicao calculada com base na posicao de origem, angulo e distancia, utilizada para prever posicoes futuras do robo em relacao a ondas de inimigo.
+    ***************************************************************** */
     public static Point2D.Double project(Point2D.Double sourceLocation,
         double angle, double length) {
         return new Point2D.Double(sourceLocation.x + Math.sin(angle) * length, sourceLocation.y + Math.cos(angle) * length);
     }
 
+    /* ***************************************************************
+    * Metodo: absoluteBearing
+    * Funcao: Metodo responsavel por calcular o angulo absoluto entre duas posicoes, utilizado para determinar a direcao de inimigos e tiros.
+    * Parametros: Point2D.Double source - a posicao de origem; Point2D.Double target - a posicao de destino.
+    * Retorno: double - o angulo absoluto entre as duas posicoes, utilizado para determinar a direcao de inimigos e tiros.
+    ***************************************************************** */
     public static double absoluteBearing(Point2D.Double source, Point2D.Double target) {
         return Math.atan2(target.x - source.x, target.y - source.y);
     }
 
+    /* ***************************************************************
+    * Metodo: limit
+    * Funcao: Metodo responsavel por limitar um valor dentro de um intervalo especificado, utilizado para garantir que variaveis como
+      velocidade e angulos fiquem dentro de limites aceitaveis.
+    * Parametros: double min - o valor minimo permitido; double value - o valor a ser limitado; double max - o valor maximo permitido.
+    * Retorno: double - o valor limitado dentro do intervalo especificado, garantindo que variaveis como velocidade e angulos
+      fiquem dentro de limites aceitaveis.
+    ***************************************************************** */
     public static double limit(double min, double value, double max) {
         return Math.max(min, Math.min(value, max));
     }
-
+    /* ***************************************************************
+    * Metodo: bulletVelocity
+    * Funcao: Metodo responsavel por calcular a velocidade de um tiro com base na potencia do tiro, utilizando a formula de velocidade de bala do Robocode.
+    * Parametros: double power - a potencia do tiro, que influencia a velocidade da bala.
+    * Retorno: double - a velocidade do tiro calculada com base na potencia, utilizando a formula de velocidade de bala do Robocode, onde
+      tiros mais potentes resultam em velocidades mais baixas.
+    *************************************************************** */
     public static double bulletVelocity(double power) {
         return (20.0 - (3.0*power));
     }
 
+    /* ***************************************************************
+    * Metodo: maxEscapeAngle
+    * Funcao: Metodo responsavel por calcular o angulo maximo de escape para um tiro com base na velocidade da bala, utilizando a formula
+      de angulo de escape do Robocode.
+    * Parametros: double velocity - a velocidade da bala, que influencia o angulo maximo de escape.
+    * Retorno: double - o angulo maximo de escape calculado com base na velocidade da bala, utilizando a formula de angulo de escape do Robocode, onde
+      balas mais lentas permitem angulos de escape maiores.
+    ***************************************************************** */
     public static double maxEscapeAngle(double velocity) {
         return Math.asin(8.0/velocity);
     }
 
+    /* ***************************************************************
+    * Metodo: setBackAsFront
+    * Funcao: Metodo responsavel por ajustar o movimento do robo para que ele possa se mover para frente ou para trás dependendo da direcao escolhida,
+      permitindo que o robo se mova de forma mais fluida e eficiente, evitando a necessidade de virar completamente para mudar de direcao.
+    * Parametros: AdvancedRobot robot - o robo; double goAngle - o angulo de movimentacao desejado.
+    * Retorno: void
+    ***************************************************************** */
     public static void setBackAsFront(AdvancedRobot robot, double goAngle) {
         double angle = Utils.normalRelativeAngle(goAngle - robot.getHeadingRadians());
         if (Math.abs(angle) > (A_LITTLE_LESS_THAN_HALF_PI)) {
@@ -394,9 +473,9 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         out.println("  Tiros acertados  : " + shotsHit);
         out.println("  Taxa de acerto   : " + String.format("%.1f", accuracy) + "%");
         out.println("  Tiros recebidos  : " + shotsReceived);
-        out.println("  Energia média    : " + String.format("%.1f", avgEnergy));
+        out.println("  Energia media    : " + String.format("%.1f", avgEnergy));
         out.println("  Placar geral     : " + wins + "V / " + deaths + "D");
-        out.println("  Acurácia surfing : " + shotsReceived + " hits levados");
+        out.println("  Acuracia surfing : " + shotsReceived + " hits levados");
     }
 
 	class EnemyWave {
