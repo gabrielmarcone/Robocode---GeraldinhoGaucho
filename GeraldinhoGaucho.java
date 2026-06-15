@@ -50,6 +50,26 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     private int wins = 0; // vitórias acumuladas
     private int deaths = 0; // derrotas acumuladas
 
+    //Variaveis para controle de tiro
+    private double finalBulletPower;
+    private double finalGunTurn;
+    private static final int MIDDLE_GUN_FACTOR = 16;
+    private static final int TOTAL_GUN_FACTORS = 33;
+
+    private static double[][][][][][][] normalGunSegmentation = new double[3][5][5][5][10][3][TOTAL_GUN_FACTORS];
+    private static double[][][][][][][] fastGunSegmentation = new double[3][5][5][5][8][3][TOTAL_GUN_FACTORS];
+
+    public ArrayList<GunWave> gunWaves;
+
+    private double enemyVelocity;
+    private double lastEnemyVelocity;
+    private double enemyLateralVelocity;
+    private double lastVelocityChangeTime;
+    private double moveDirection = 1;
+    private double escapeEnvelope = moveDirection * maxEscapeAngle(Rules.getBulletSpeed(3));
+    private double wallDistance;
+    private double reverseWallDistance;
+
 	/* ***************************************************************
 	* Metodo: run
 	* Funcao: Metodo principal do robo, responsavel por executar a logica de movimento e combate.
@@ -73,6 +93,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 		surfDirections = new ArrayList<>();
 		surfAbsBearings = new ArrayList<>();
 		enemyWaves = new ArrayList<>();
+        gunWaves = new ArrayList<>();
 
 		// Laco principal do robo, onde o radar gira continuamente para escanear o ambiente
 		do {
@@ -89,8 +110,8 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 	public void updateWaves() {
 		for (int i = 0; i < enemyWaves.size(); i++) {
 			EnemyWave ew = (EnemyWave)enemyWaves.get(i);
-
-			ew.distanceTraveled = (getTime() - ew.fireTime) * ew.bulletVelocity;
+            double timeVariation = getTime() - ew.fireTime;
+			ew.distanceTraveled = timeVariation * ew.bulletVelocity;
 			if (ew.distanceTraveled >
 				myLocation.distance(ew.fireLocation) + 50) {
 				enemyWaves.remove(i);
@@ -116,7 +137,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         double dangerLeft = checkDanger(surfWave, -1);
         double dangerRight = checkDanger(surfWave, 1);
 
-        double goAngle = absoluteBearing(surfWave.fireLocation, myLocation);
+        double goAngle = absBearing(surfWave.fireLocation, myLocation);
         if (dangerLeft < dangerRight) {
             goAngle = wallSmoothing(myLocation, goAngle - (A_LITTLE_LESS_THAN_HALF_PI), -1);
         } else {
@@ -136,8 +157,8 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         double closestDistance = Double.POSITIVE_INFINITY;
         EnemyWave surfWave = null;
 
-        for (int x = 0; x < enemyWaves.size(); x++) {
-            EnemyWave ew = (EnemyWave)enemyWaves.get(x);
+        for (int i = 0; i < enemyWaves.size(); i++) {
+            EnemyWave ew = (EnemyWave)enemyWaves.get(i);
             double distance = myLocation.distance(ew.fireLocation) - ew.distanceTraveled;
 
             if (distance > ew.bulletVelocity && distance < closestDistance) {
@@ -159,11 +180,32 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 	*************************************************************** */
 	public double checkDanger(EnemyWave surfWave, int direction) {
         Point2D.Double predictedPosition = predictPosition(surfWave, direction);
-        int index = getFactorIndex(surfWave, predictedPosition);
+        int centralIndex = getFactorIndex(surfWave, predictedPosition);
 
         double lastPredictedDistance = surfWave.fireLocation.distance(predictedPosition);
+        double smoothedDanger = 0;
 
-        return (surfWave.stats[index] + 0.01 / (Math.abs(index - (BINS/2)) + 1)) / Math.pow(lastPredictedDistance, 4);
+        // Janela deslizante de index-2 até index+2
+        for (int i = -2; i <= 2; i++) {
+            int currentIndex = centralIndex + i;
+            
+            // Prevenção de OutOfBounds (limites do array)
+            if (currentIndex >= 0 && currentIndex < BINS) {
+                double weight;
+                
+                // Distribuição de pesos que você sugeriu
+                if (Math.abs(i) == 0) weight = 1.00;
+                else if (Math.abs(i) == 1) weight = 0.50;
+                else weight = 0.25;
+
+                // Le o valor cru da matriz multidimensional e multiplicamos pelo peso
+                double rawDanger = surfStats[surfWave.segDist][surfWave.segVel][surfWave.segTime][currentIndex];
+                smoothedDanger += (rawDanger * weight);
+            }
+        }
+
+        // Mantemos a fórmula original que soma o perigo lido e penaliza rotas próximas da onda
+        return (smoothedDanger + 0.01 / (Math.abs(centralIndex - (BINS/2)) + 1)) / Math.pow(lastPredictedDistance, 4);
     }
 
     /* ***************************************************************
@@ -175,10 +217,10 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     * Retorno: int - o indice do array de estatisticas de surf correspondente a posicao prevista do robo em relacao a onda de inimigo.
     *************************************************************** */
 	public static int getFactorIndex(EnemyWave ew, Point2D.Double targetLocation) {
-        double offsetAngle = (absoluteBearing(ew.fireLocation, targetLocation) - ew.directAngle);
+        double offsetAngle = (absBearing(ew.fireLocation, targetLocation) - ew.directAngle);
         double factor = Utils.normalRelativeAngle(offsetAngle) / maxEscapeAngle(ew.bulletVelocity) * ew.direction;
 
-        return (int)limit(0, (factor * ((BINS - 1) / 2)) + ((BINS - 1) / 2), BINS - 1);
+        return (int)limit(0,(factor * (BINS/2) + (BINS/2)), BINS - 1);
     }
 
     /* ***************************************************************
@@ -199,11 +241,11 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         double predictedHeading = getHeadingRadians();
         double maxTurning, moveAngle, moveDir;
 
-        int counter = 0; // number of ticks in the future
+        int counter = 0; // Contador de ticks simulados
         boolean intercepted = false;
 
-        do {    // the rest of these code comments are rozu's
-            moveAngle = wallSmoothing(predictedPosition, absoluteBearing(surfWave.fireLocation, predictedPosition) + (direction * (A_LITTLE_LESS_THAN_HALF_PI)), direction) - predictedHeading;
+        do {
+            moveAngle = wallSmoothing(predictedPosition, absBearing(surfWave.fireLocation, predictedPosition) + (direction * (A_LITTLE_LESS_THAN_HALF_PI)), direction) - predictedHeading;
             moveDir = 1;
 
             if(Math.cos(moveAngle) < 0) {
@@ -213,17 +255,12 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 
             moveAngle = Utils.normalRelativeAngle(moveAngle);
 
-            // maxTurning is built in like this, you can't turn more then this in one tick
             maxTurning = Math.PI/720d*(40d - 3d*Math.abs(predictedVelocity));
             predictedHeading = Utils.normalRelativeAngle(predictedHeading + limit(-maxTurning, moveAngle, maxTurning));
 
-            // this one is nice ;). if predictedVelocity and moveDir have
-            // different signs you want to breack down
-            // otherwise you want to accelerate (look at the factor "2")
             predictedVelocity += (predictedVelocity * moveDir < 0 ? 2 * moveDir : moveDir);
             predictedVelocity = limit(-8, predictedVelocity, 8);
 
-            // calculate the new predicted position
             predictedPosition = project(predictedPosition, predictedHeading, predictedVelocity);
 
             counter++;
@@ -252,8 +289,6 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         double lateralVelocity = getVelocity()*Math.sin(e.getBearingRadians());
         double absBearing = e.getBearingRadians() + getHeadingRadians();
 
-        setTurnRadarRightRadians(Utils.normalRelativeAngle(absBearing - getRadarHeadingRadians()) * 2);
-
         // Rastrear reversão de direção
         int currentDir = (lateralVelocity >= 0) ? 1 : -1;
         if (currentDir != lastDirection) {
@@ -281,12 +316,12 @@ public class GeraldinhoGaucho extends AdvancedRobot {
             double absLat = Math.abs(lateralVelocity);
             long timeSinceReverse = getTime() - lastReverseTime;
  
-            int segDist = getDistSegment(dist);
-            int segVel = getVelSegment(absLat);
-            int segTime = getTimeSegment(timeSinceReverse);
+            ew.segDist = getDistSegment(dist);
+            ew.segVel = getVelSegment(absLat);
+            ew.segTime = getTimeSegment(timeSinceReverse);
  
             // A wave carrega uma referência direta ao slice [segDist][segVel][segTime]
-            ew.stats = surfStats[segDist][segVel][segTime];
+            // ew.stats = surfStats[segDist][segVel][segTime];
             // -------------------------------------------
 
             enemyWaves.add(ew);
@@ -294,14 +329,142 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 
         opponentEnergy = e.getEnergy();
 
-        // update after EnemyWave detection, because that needs the previous
-        // enemy location as the source of the wave
         enemyLocation = project(myLocation, absBearing, e.getDistance());
 
         updateWaves();
         doSurfing();
 
         // gun code would go here...
+        finalBulletPower = 1.9;
+        //Estrategia de aumentar o poder de fogo caso o inimigo esteja perto
+        if (e.getDistance() < 240) {
+            finalBulletPower = 3.0;
+        }
+        //Estrategia de calcular o poder de fogo pela energia do inimigo e propria energia
+        finalBulletPower = Math.min(finalBulletPower, e.getEnergy()/4);
+        finalBulletPower = Math.min(finalBulletPower, getEnergy()/2);
+        double bulletSpeed = Rules.getBulletSpeed(finalBulletPower);
+
+        lastEnemyVelocity = enemyVelocity;
+        enemyVelocity = e.getVelocity();
+        absBearing = e.getBearingRadians() + getHeadingRadians();
+        myLocation = new Point2D.Double(getX(), getY());
+        double enemyDistance = e.getDistance();
+
+        //Encontra a velocidade lateral e direcao do inimigo para determinar o escape envelope
+        enemyLateralVelocity = enemyVelocity * Math.sin(e.getHeadingRadians() - absBearing);
+        if (enemyLateralVelocity != 0)
+            moveDirection = (enemyLateralVelocity > 0 ? 1 : -1);
+        escapeEnvelope = moveDirection * maxEscapeAngle(bulletSpeed);
+
+        //Retorna a distancia lateral do inimigo ate a parede como um valor entre 0 e 1
+        wallDistance = 1.1;
+
+        while(wallDistance >= 0.1){
+            wallDistance -= 0.1;
+            Point2D.Double predictedBulletPosition = project(myLocation,absBearing + wallDistance * escapeEnvelope, enemyDistance);
+            if(battleField.contains(predictedBulletPosition))
+                break;
+        }
+
+        //Faz o mesmo calculo para o outro lado
+        reverseWallDistance = 1.1;
+        while(reverseWallDistance >= 0.1){
+            reverseWallDistance -= 0.1;
+            Point2D.Double predictedBulletPosition = project(myLocation,absBearing - reverseWallDistance * escapeEnvelope, enemyDistance);
+            if(battleField.contains(predictedBulletPosition))
+                break;
+        }
+
+        //Fator de alteracao de velocidade de movimento do inimigo para detectar robos imprevisiveis
+        double moveTime = bulletSpeed * lastVelocityChangeTime++ / enemyDistance;
+
+        //Segmentacao
+        if (e.getEnergy() > 0 && getEnergy() > 0) {
+            //Segmentacao pela distancia ate o inimigo
+            int distanceIndex = (int) enemyDistance / 240;
+            int fastDistanceIndex = (int) enemyDistance / 360;
+
+            //Segmentacao pela distancia do inimigo ate a parede
+            int nearWallIndex = (int) (wallDistance * 3);
+            int fastNearWallIndex = (int) (wallDistance * 1.5);
+
+            //Segmentacao pela distancia do inimigo ate a parede inversa
+            int reverseNearWallIndex = (int) (reverseWallDistance * 2);
+            int fastReverseNearWallIndex = (int) (reverseWallDistance * 1.25);
+
+            //Segmentacao pela velocidade lateral do inimigo
+            int lateralVelocityIndex = (int) Math.abs(enemyLateralVelocity / 2);
+            int fastLateralVelocityIndex = (int) Math.abs(enemyLateralVelocity / 2.67);
+
+            //Segmentacao pelo tempo desde a ultima mudanca de velocidade do inimigo
+            int moveTimeIndex = moveTime < .4 ? 1 : moveTime < .8 ? 2 : moveTime < 1.2 ? 3 : 4;
+            int fastMoveTimeIndex = moveTime < .6 ? 1 : 2;
+
+            //Segmentacao pela aceleracao do inimigo
+            int accelerationIndex = (int) Math.round(Math.abs(enemyVelocity) - Math.abs(lastEnemyVelocity));
+            if (accelerationIndex != 0){
+                accelerationIndex = accelerationIndex > 0 ? 2 : 1;
+            }
+            if (accelerationIndex > 0) {
+                lastVelocityChangeTime = 0;
+                moveTimeIndex = fastMoveTimeIndex = 0;
+            }
+
+            //Determina uma nova onda de tiro
+            GunWave g = new GunWave();
+            g.bulletOrigin = myLocation;
+            g.enemyOrigin = g.lastEnemyPosition = project(enemyLocation, e.getHeadingRadians(), -enemyVelocity);
+            g.bulletAngle = absBearing(g.bulletOrigin, g.enemyOrigin);
+            g.bulletVelocity = bulletSpeed;
+            g.fireTime = g.lastTime = getTime() - 1;
+            g.escapeEnvelope = escapeEnvelope;
+            g.normalSegment = normalGunSegmentation[accelerationIndex][lateralVelocityIndex][moveTimeIndex][nearWallIndex][distanceIndex][reverseNearWallIndex];
+            g.fastSegment = fastGunSegmentation[accelerationIndex][fastLateralVelocityIndex][fastMoveTimeIndex][fastNearWallIndex][fastDistanceIndex][fastReverseNearWallIndex];
+            gunWaves.add(g);
+            //Se o cooldown da arma for 0 significa que esta apta a dar um tiro real que sera utilizado para ponderar os dados
+            if (getGunHeat() == 0){
+                g.real = true;
+            }
+
+
+            //Percorre as ondas restantes atualizando a posicao dessas no tempo atual
+            for (int i = 0; i < gunWaves.size(); i++) {
+                GunWave gw = gunWaves.get(i);
+                if(gw.update(getTime(), enemyLocation)){
+                    gunWaves.remove(gw);
+                    i--;
+                }
+            }
+
+            int bestIndex = MIDDLE_GUN_FACTOR;
+            //Procura pelos melhores indexes dada as segmentacoes
+            double bestWeightedValueFromNormalSegment = weightedHitsSmoothing(bestIndex, g.normalSegment);
+            double bestWeightedValueFromFastSegment = weightedHitsSmoothing(bestIndex, g.fastSegment);
+            for (int i = MIDDLE_GUN_FACTOR * 2 - 1; i >= 1; i--) {
+                double currentNormalWeightedValue = weightedHitsSmoothing(i, g.normalSegment);
+                double currentFastWeightedValue = weightedHitsSmoothing(i, g.fastSegment);
+                if (currentNormalWeightedValue + currentFastWeightedValue > bestWeightedValueFromNormalSegment + bestWeightedValueFromFastSegment) {
+                    bestIndex = i;
+                    bestWeightedValueFromNormalSegment = currentNormalWeightedValue;
+                    bestWeightedValueFromFastSegment = currentFastWeightedValue;
+                }
+            }
+
+            //Ajusta o angulo final de mira da arma de acordo com a possibilidade de atirar realmente ou nao
+            if (getGunHeat() < getGunCoolingRate() * 3)
+                finalGunTurn = Utils.normalRelativeAngle(absBearing - getGunHeadingRadians() + escapeEnvelope * (bestIndex/(double) MIDDLE_GUN_FACTOR - 1));
+            else
+                finalGunTurn = Utils.normalRelativeAngle(absBearing-getGunHeadingRadians());
+
+            //Gira a arma e atira
+            setTurnGunRightRadians(finalGunTurn);
+            if (finalBulletPower > 0){
+                setFire(finalBulletPower);
+            }
+
+            setTurnRadarRightRadians(Math.tan(e.getBearingRadians() + getHeadingRadians() - getRadarHeadingRadians()) * 2);
+        }
 	}
 
     /* ***************************************************************
@@ -314,13 +477,33 @@ public class GeraldinhoGaucho extends AdvancedRobot {
       de surf para que direcoes próximas a essa posicao sejam consideradas mais perigosas no futuro, ajudando o robo a evitar essas direcoes em ondas futuras.
     *************************************************************** */
 	public void logHit(EnemyWave ew, Point2D.Double targetLocation) {
-        int index = getFactorIndex(ew, targetLocation);
+       int hitIndex = getFactorIndex(ew, targetLocation);
 
-        for (int x = 0; x < BINS; x++) {
-            // for the spot bin that we were hit on, add 1;
-            // for the bins next to it, add 1 / 2;
-            // the next one, add 1 / 5; and so on...
-            ew.stats[x] += 1.0 / (Math.pow(index - x, 2) + 1);
+        // Varremos todos os segmentos possíveis
+        for (int d = 0; d < SEG_DIST; d++) {
+            for (int v = 0; v < SEG_VEL; v++) {
+                for (int t = 0; t < SEG_TIME; t++) {
+                    
+                    // Calcula a diferença matemática entre o segmento atual do loop e o real da wave
+                    double diffDist = Math.abs(ew.segDist - d);
+                    double diffVel  = Math.abs(ew.segVel - v);
+                    double diffTime = Math.abs(ew.segTime - t);
+
+                    // Cria um peso para o segmento atual baseado na distância matemática, penalizando segmentos mais distantes
+                    double segmentWeight = 1.0 / (1.0 + Math.pow(diffDist, 2) + Math.pow(diffVel, 2) + diffTime);
+
+                    // Só processa se o peso for minimamente relevante para poupar CPU
+                    if (segmentWeight > 0.05) {
+                        for (int x = 0; x < BINS; x++) {
+                            // Peso do GuessFactor (onde a bala bateu na linha de esquiva)
+                            double binWeight = 1.0 / (Math.pow(hitIndex - x, 2) + 1);
+
+                            // Atualiza a matriz cruzando o peso geográfico com o peso do acerto
+                            surfStats[d][v][t][x] += (binWeight * segmentWeight);
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -331,13 +514,10 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 	* Retorno: void
 	*************************************************************** */
 	public void onHitByBullet(HitByBulletEvent e) {
-		// If the enemyWaves collection is empty, we must have missed the
-        // detection of this wave somehow.
         if (!enemyWaves.isEmpty()) {
             Point2D.Double hitBulletLocation = new Point2D.Double(e.getBullet().getX(), e.getBullet().getY());
             EnemyWave hitWave = null;
 
-            // look through the EnemyWaves, and find one that could've hit us.
             for (int x = 0; x < enemyWaves.size(); x++) {
                 EnemyWave ew = (EnemyWave)enemyWaves.get(x);
 
@@ -350,7 +530,6 @@ public class GeraldinhoGaucho extends AdvancedRobot {
             if (hitWave != null) {
                 logHit(hitWave, hitBulletLocation);
 
-                // We can remove this wave now, of course.
                 enemyWaves.remove(enemyWaves.lastIndexOf(hitWave));
             }
         }
@@ -382,13 +561,32 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         return new Point2D.Double(sourceLocation.x + Math.sin(angle) * length, sourceLocation.y + Math.cos(angle) * length);
     }
 
+    //Metodo weightedHitsSmoothing
+    //Determina a densidade de acertos de um index de acordo com os outros indexes ponderando pela distancia ate eles
+    public static double weightedHitsSmoothing(int guessFactorIndex, double[] currentSegment) {
+        double weightedSum = 0;
+        for (int i = 1; i < TOTAL_GUN_FACTORS - 1; i++) {
+            int distanceToGFIndex = Math.abs(guessFactorIndex - i);
+            weightedSum += currentSegment[i] / Math.sqrt(distanceToGFIndex + 1.0);
+        }
+        return weightedSum;
+    }
+
+    //Metodo findGuessFactorIndex
+    //Encontra o index referente ao guess factor que atingiu o oponente
+    public int findGuessFactorIndex(double startAngle, double newAngle, double escapeEnvelope) {
+        double guessFactor = Utils.normalRelativeAngle(newAngle - startAngle) / escapeEnvelope;
+        int guessFactorIndex = (int)Math.round((1 + guessFactor) * MIDDLE_GUN_FACTOR);
+        return (int)limit(1, guessFactorIndex, TOTAL_GUN_FACTORS - 1);
+    }
+
     /* ***************************************************************
-    * Metodo: absoluteBearing
+    * Metodo: absBearing
     * Funcao: Metodo responsavel por calcular o angulo absoluto entre duas posicoes, utilizado para determinar a direcao de inimigos e tiros.
     * Parametros: Point2D.Double source - a posicao de origem; Point2D.Double target - a posicao de destino.
     * Retorno: double - o angulo absoluto entre as duas posicoes, utilizado para determinar a direcao de inimigos e tiros.
     ***************************************************************** */
-    public static double absoluteBearing(Point2D.Double source, Point2D.Double target) {
+    public static double absBearing(Point2D.Double source, Point2D.Double target) {
         return Math.atan2(target.x - source.x, target.y - source.y);
     }
 
@@ -451,17 +649,6 @@ public class GeraldinhoGaucho extends AdvancedRobot {
             robot.setAhead(100);
         }
     }
-
-    /* ***************************************************************
-    * Metodo: onBulletFired
-    * Funcao: Registra cada tiro disparado pelo robo.
-    * Parametros: BulletFiredEvent e - evento do disparo.
-    * Retorno: void
-    *************************************************************** */
-    //public void onBulletFired(BulletFiredEvent e) {
-    //    shotsFired++;
-    //}
-
     /* ***************************************************************
     * Metodo: onBulletHit
     * Funcao: Registra quando um tiro nosso acerta o inimigo.
@@ -525,7 +712,66 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 		int direction;
 
         // Referência direta ao slice [dist][vel][time] de surfStats
-        double[] stats;
+        // double[] stats;
+        // Cordenadas ao invez do array
+        int segDist;
+        int segVel;
+        int segTime;
+    }
+
+    //Classe GunWave
+    //Representa uma onda de tiro que pode ser virtual ou real do robo
+    class GunWave {
+        GunWave next;
+        Point2D.Double bulletOrigin;
+        Point2D.Double enemyOrigin;
+        Point2D.Double lastEnemyPosition;
+        double bulletAngle;
+        double bulletVelocity;
+        double escapeEnvelope;
+        long fireTime;
+        long lastTime;
+        double[] normalSegment;
+        double[] fastSegment;
+        boolean real = false;
+
+        boolean update(long time, Point2D currentEnemyPosition) {
+            long deltaTime = time - lastTime;
+            double deltaX = (currentEnemyPosition.getX() - lastEnemyPosition.getX()) / deltaTime;
+            double deltaY = (currentEnemyPosition.getY() - lastEnemyPosition.getY()) / deltaTime;
+            do {
+                //Se a distancia percorrida pela bala for maior que a distancia da origem da bala ate a posicao do inimigo
+                if (bulletOrigin.distance(lastEnemyPosition) <= bulletVelocity * (lastTime - fireTime)) {
+                    //Encontra o guess factor da wave e o index referente a esse guess factor para preencher os dados
+                    int index = findGuessFactorIndex(bulletAngle, absBearing(bulletOrigin, lastEnemyPosition), escapeEnvelope);
+                    index = (int) limit(1, index, MIDDLE_GUN_FACTOR * 2 - 1);
+
+                    //Atribui um peso maior caso a wave represente um tiro real
+                    double weightReal = real ? 5 : 1;
+
+                    //Ajusta os dados ja salvos anteriormente mantendo todos como uma porcentagem
+                    for (int i = 1; i < MIDDLE_GUN_FACTOR * 2; i++) {
+                        //o index 0 de cada segmentacao representa o numero total de acertos registrados sendo utilizado para ponderar os valores
+                        normalSegment[i] *= normalSegment[0] / (normalSegment[0] + weightReal);
+                        fastSegment[i] *= fastSegment[0] / (fastSegment[0] + weightReal);
+                    }
+
+                    //Atualiza o numero total de acertos adicionando o peso da onda atual
+                    normalSegment[0] += weightReal;
+                    //Da o devido peso ao index do guess factor da onda
+                    normalSegment[index] += (weightReal / normalSegment[0]);
+                    //Faz a mesma coisa para a segmentacao rapida
+                    fastSegment[0] += weightReal;
+                    fastSegment[index] += (weightReal / fastSegment[0]);
+
+                    return true;
+                }
+                lastTime++;
+                lastEnemyPosition.setLocation(lastEnemyPosition.getX() + deltaX, lastEnemyPosition.getY() + deltaY);
+            }
+            while (lastTime < time);
+            return false;
+        }
     }
 
     // ===================================================================
@@ -533,12 +779,11 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     // ===================================================================
  
     /* ***************************************************************
-     * getDistSegment
-     * Limites calibrados para campo padrão 800×600:
-     *   curta  < 200 px  → índice 0
-     *   média  < 450 px  → índice 1
-     *   longa  >= 450 px → índice 2
-     *************************************************************** */
+    * Metodo: getDistSegment
+    * Funcao: Metodo responsavel por segmentar a distancia entre o robo e o inimigo em categorias, atribuindo um indice para cada categoria.
+    * Parametros: double distance - a distancia entre o robo e o inimigo.
+    * Retorno: int - o indice da categoria correspondente a distancia entre o robo e o inimigo
+    ******************************************************* */
     public static int getDistSegment(double distance) {
         if (distance < 150) return 0;
         if (distance < 300) return 1;
@@ -547,12 +792,11 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     }
  
     /* ***************************************************************
-     * getVelSegment
-     * Velocidade lateral absoluta (px/tick):
-     *   baixa  < 2.0  → índice 0   (robô quase parado / indo direto)
-     *   média  < 5.5  → índice 1
-     *   alta   >= 5.5 → índice 2   (perpendicular em velocidade máxima)
-     *************************************************************** */
+    * Metodo: getVelSegment
+    * Funcao: Metodo responsavel por segmentar a velocidade lateral do inimigo em categorias, atribuindo um indice para cada categoria.
+    * Parametros: double absLateralVelocity - a velocidade lateral absoluta do inimigo.
+    * Retorno: int - o indice da categoria correspondente a velocidade lateral do inimigo
+    ********************************************************* */
     public static int getVelSegment(double absLateralVelocity) {
         if (absLateralVelocity < 1.5) return 0;
         if (absLateralVelocity < 4.0) return 1;
@@ -560,14 +804,13 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 
         return 3;
     }
- 
+    
     /* ***************************************************************
-     * getTimeSegment
-     * Ticks desde a última reversão lateral:
-     *   recente       < 10 ticks → índice 0  (acaba de mudar de lado)
-     *   intermediário < 30 ticks → índice 1
-     *   longo         >= 30 ticks→ índice 2  (viajando reto há muito tempo)
-     *************************************************************** */
+    * Metodo: getTimeSegment
+    * Funcao: Metodo responsavel por segmentar o tempo desde a ultima reversao de direcao do inimigo em categorias, atribuindo um indice para cada categoria.
+    * Parametros: long timeSinceReverse - o tempo desde a ultima reversao de direcao do inimigo.
+    * Retorno: int - o indice da categoria correspondente ao tempo desde a ultima reversao
+    ******************************************************* */
     public static int getTimeSegment(long timeSinceReverse) {
         if (timeSinceReverse < 10) return 0;
         if (timeSinceReverse < 30) return 1;
