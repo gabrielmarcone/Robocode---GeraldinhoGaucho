@@ -639,42 +639,4 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     }
   }
 
-  /* ***************************************************************
-    * Metodo: saveSurfStats
-    * Funcao: Metodo responsavel por converter o array do surfStats em uma unica linha de texto no arquivo.
-    * Parametros: Nenhum
-    * Retorno: Nenhum
-    ***************************************************************** */
-  private void saveSurfStats(PrintStream ps) {
-    StringBuilder sb = new StringBuilder("surfStats=");
-    for (int d = 0; d < SEG_DIST; d++)
-        for (int v = 0; v < SEG_VEL; v++)
-            for (int t = 0; t < SEG_TIME; t++)
-                for (int b = 0; b < BINS; b++) {
-                    sb.append(surfStats[d][v][t][b]);
-                    if (!(d == SEG_DIST-1 && v == SEG_VEL-1
-                          && t == SEG_TIME-1 && b == BINS-1))
-                        sb.append(",");
-                }
-    ps.println(sb.toString());
-  }
-
-  /* ***************************************************************
-    * Metodo: loadSurfStats
-    * Funcao: Metodo responsavel por desconverter a linha de texto do arquivo e preenhcer o array surfStats.
-    * Parametros: Nenhum
-    * Retorno: Nenhum
-    ***************************************************************** */
-  private void loadSurfStats(String val) {
-    String[] nums = val.split(",");
-    int idx = 0;
-    for (int d = 0; d < SEG_DIST; d++)
-        for (int v = 0; v < SEG_VEL; v++)
-            for (int t = 0; t < SEG_TIME; t++)
-                for (int b = 0; b < BINS; b++) {
-                    if (idx < nums.length)
-                        surfStats[d][v][t][b] = Double.parseDouble(nums[idx++]);
-                }
-  }
-
 }
