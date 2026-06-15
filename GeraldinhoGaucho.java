@@ -7,7 +7,25 @@ import java.util.ArrayList;
 public class GeraldinhoGaucho extends AdvancedRobot {
 	// ========== Wave Surfing ==========
 	public static int BINS = 47;
-    public static double surfStats[] = new double[BINS];
+    // -----------------------------------------------------------------------
+    // SEGMENTAÇÃO MULTIDIMENSIONAL
+    //   Eixo 0 – Distância até o inimigo  : 0=curta  1=média  2=longa
+    //   Eixo 1 – Velocidade lateral própria: 0=baixa  1=média  2=alta
+    //   Eixo 2 – Tempo desde última reversão: 0=recente 1=intermediário 2=longo
+    //   Total de segmentos: 4 × 4 × 3 = 48  ->  48 × 47 bins ≈ 2 256 doubles ≈ 18 KB
+    // -----------------------------------------------------------------------
+    public static final int SEG_DIST  = 4;  // segmentos de distância
+    public static final int SEG_VEL   = 4;  // segmentos de velocidade lateral
+    public static final int SEG_TIME  = 3;  // segmentos de tempo de reversão
+ 
+    // Array 4-D: [dist][vel][timeSinceReverse][bins]
+    public static double[][][][] surfStats = new double[SEG_DIST][SEG_VEL][SEG_TIME][BINS];
+ 
+    // Rastreamento de reversão de direção
+    private int   lastDirection    = 1;
+    private long  lastReverseTime  = 0;
+
+    //public static double surfStats[] = new double[BINS];
     private ArrayList<EnemyWave> enemyWaves;
     private ArrayList<Integer> surfDirections;
     private ArrayList<Double> surfAbsBearings;
@@ -31,7 +49,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     private int energySamples = 0; // quantidade de amostras coletadas
     private int wins = 0; // vitórias acumuladas
     private int deaths = 0; // derrotas acumuladas
-    
+
 	/* ***************************************************************
 	* Metodo: run
 	* Funcao: Metodo principal do robo, responsavel por executar a logica de movimento e combate.
@@ -140,9 +158,12 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 	* Retorno: double - o nivel de perigo da direcao avaliada, onde valores mais altos indicam maior perigo.
 	*************************************************************** */
 	public double checkDanger(EnemyWave surfWave, int direction) {
-        int index = getFactorIndex(surfWave, predictPosition(surfWave, direction));
+        Point2D.Double predictedPosition = predictPosition(surfWave, direction);
+        int index = getFactorIndex(surfWave, predictedPosition);
 
-        return surfStats[index];
+        double lastPredictedDistance = surfWave.fireLocation.distance(predictedPosition);
+
+        return (surfWave.stats[index] + 0.01 / (Math.abs(index - (BINS/2)) + 1)) / Math.pow(lastPredictedDistance, 4);
     }
 
     /* ***************************************************************
@@ -233,7 +254,14 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 
         setTurnRadarRightRadians(Utils.normalRelativeAngle(absBearing - getRadarHeadingRadians()) * 2);
 
-        surfDirections.add(0, new Integer((lateralVelocity >= 0) ? 1 : -1));
+        // Rastrear reversão de direção
+        int currentDir = (lateralVelocity >= 0) ? 1 : -1;
+        if (currentDir != lastDirection) {
+            lastDirection = currentDir;
+            lastReverseTime = getTime();
+        }
+
+        surfDirections.add(0, new Integer(currentDir));
         surfAbsBearings.add(0, new Double(absBearing + Math.PI));
 
 
@@ -247,6 +275,19 @@ public class GeraldinhoGaucho extends AdvancedRobot {
             ew.direction = ((Integer)surfDirections.get(2)).intValue();
             ew.directAngle = ((Double)surfAbsBearings.get(2)).doubleValue();
             ew.fireLocation = (Point2D.Double)enemyLocation.clone(); // last tick
+
+            // ---- SEGMENTAÇÃO no momento do disparo ----
+            double dist = myLocation.distance(enemyLocation);
+            double absLat = Math.abs(lateralVelocity);
+            long timeSinceReverse = getTime() - lastReverseTime;
+ 
+            int segDist = getDistSegment(dist);
+            int segVel = getVelSegment(absLat);
+            int segTime = getTimeSegment(timeSinceReverse);
+ 
+            // A wave carrega uma referência direta ao slice [segDist][segVel][segTime]
+            ew.stats = surfStats[segDist][segVel][segTime];
+            // -------------------------------------------
 
             enemyWaves.add(ew);
         }
@@ -279,7 +320,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
             // for the spot bin that we were hit on, add 1;
             // for the bins next to it, add 1 / 2;
             // the next one, add 1 / 5; and so on...
-            surfStats[x] += 1.0 / (Math.pow(index - x, 2) + 1);
+            ew.stats[x] += 1.0 / (Math.pow(index - x, 2) + 1);
         }
     }
 
@@ -337,8 +378,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     * Parametros: Point2D.Double sourceLocation - a posicao de origem; double angle - o angulo de movimentacao; double length - a distancia a ser projetada.
     * Retorno: Point2D.Double - a nova posicao calculada com base na posicao de origem, angulo e distancia, utilizada para prever posicoes futuras do robo em relacao a ondas de inimigo.
     ***************************************************************** */
-    public static Point2D.Double project(Point2D.Double sourceLocation,
-        double angle, double length) {
+    public static Point2D.Double project(Point2D.Double sourceLocation, double angle, double length) {
         return new Point2D.Double(sourceLocation.x + Math.sin(angle) * length, sourceLocation.y + Math.cos(angle) * length);
     }
 
@@ -483,5 +523,54 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 		long fireTime;
 		double bulletVelocity, directAngle, distanceTraveled;
 		int direction;
+
+        // Referência direta ao slice [dist][vel][time] de surfStats
+        double[] stats;
+    }
+
+    // ===================================================================
+    // MÉTODOS AUXILIARES DE SEGMENTAÇÃO
+    // ===================================================================
+ 
+    /* ***************************************************************
+     * getDistSegment
+     * Limites calibrados para campo padrão 800×600:
+     *   curta  < 200 px  → índice 0
+     *   média  < 450 px  → índice 1
+     *   longa  >= 450 px → índice 2
+     *************************************************************** */
+    public static int getDistSegment(double distance) {
+        if (distance < 150) return 0;
+        if (distance < 300) return 1;
+        if (distance < 500) return 2;
+        return 3;
+    }
+ 
+    /* ***************************************************************
+     * getVelSegment
+     * Velocidade lateral absoluta (px/tick):
+     *   baixa  < 2.0  → índice 0   (robô quase parado / indo direto)
+     *   média  < 5.5  → índice 1
+     *   alta   >= 5.5 → índice 2   (perpendicular em velocidade máxima)
+     *************************************************************** */
+    public static int getVelSegment(double absLateralVelocity) {
+        if (absLateralVelocity < 1.5) return 0;
+        if (absLateralVelocity < 4.0) return 1;
+        if (absLateralVelocity < 6.0) return 2;
+
+        return 3;
+    }
+ 
+    /* ***************************************************************
+     * getTimeSegment
+     * Ticks desde a última reversão lateral:
+     *   recente       < 10 ticks → índice 0  (acaba de mudar de lado)
+     *   intermediário < 30 ticks → índice 1
+     *   longo         >= 30 ticks→ índice 2  (viajando reto há muito tempo)
+     *************************************************************** */
+    public static int getTimeSegment(long timeSinceReverse) {
+        if (timeSinceReverse < 10) return 0;
+        if (timeSinceReverse < 30) return 1;
+        return 2;
     }
 }
