@@ -2,6 +2,11 @@ import robocode.*;
 import robocode.util.Utils;
 import java.awt.Color;
 import java.awt.geom.*;
+import java.io.BufferedReader;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.PrintStream;
 import java.util.ArrayList;
 
 public class GeraldinhoGaucho extends AdvancedRobot {
@@ -50,6 +55,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     private int wins = 0; // vitórias acumuladas
     private int deaths = 0; // derrotas acumuladas
 
+    private static final String DATA_FILE = "geraldinho_stats.dat"; // registro dos logs de batalha
 	/* ***************************************************************
 	* Metodo: run
 	* Funcao: Metodo principal do robo, responsavel por executar a logica de movimento e combate.
@@ -74,6 +80,8 @@ public class GeraldinhoGaucho extends AdvancedRobot {
 		surfAbsBearings = new ArrayList<>();
 		enemyWaves = new ArrayList<>();
 
+    // Carregamento dos eventos
+    loadData();
 		// Laco principal do robo, onde o radar gira continuamente para escanear o ambiente
 		do {
             turnRadarRightRadians(1);
@@ -481,6 +489,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     public void onWin(WinEvent e) {
         wins++;
         printRoundStats("VITÓRIA");
+        saveData();
     }
 
     /* ***************************************************************
@@ -492,6 +501,7 @@ public class GeraldinhoGaucho extends AdvancedRobot {
     public void onDeath(DeathEvent e) {
         deaths++;
         printRoundStats("DERROTA");
+        saveData();
     }
 
     /* ***************************************************************
@@ -573,4 +583,98 @@ public class GeraldinhoGaucho extends AdvancedRobot {
         if (timeSinceReverse < 30) return 1;
         return 2;
     }
+
+    /* ***************************************************************
+    * Metodo: saveData
+    * Funcao: Metodo responsavel salvar os dados de batalha do robo.
+    * Parametros: Nenhum
+    * Retorno: Nenhum
+    ***************************************************************** */
+    private void saveData() {
+    try (PrintStream ps = new PrintStream(
+            new RobocodeFileOutputStream(getDataFile(DATA_FILE)))) {
+
+        ps.println("# GeraldinhoGaucho - dados persistidos automaticamente");
+        ps.println("wins=" + wins);
+        ps.println("deaths=" + deaths);
+        ps.println("shotsFired=" + shotsFired);
+        ps.println("shotsHit=" + shotsHit);
+        ps.println("shotsReceived=" + shotsReceived);
+
+    } catch (IOException e) {
+        out.println("[ERRO] Falha ao salvar: " + e.getMessage());
+    }
+  }
+
+    /* ***************************************************************
+    * Metodo: loadData
+    * Funcao: Metodo responsavel carregar os dados de batalha do robo.
+    * Parametros: Nenhum
+    * Retorno: Nenhum
+    ***************************************************************** */
+   private void loadData() {
+    try (BufferedReader br = new BufferedReader(
+            new FileReader(getDataFile(DATA_FILE)))) {
+
+        String line;
+        while ((line = br.readLine()) != null) {
+            if (line.startsWith("#") || line.isEmpty()) continue;
+            String[] parts = line.split("=", 2);
+            if (parts.length < 2) continue;
+            switch (parts[0].trim()) {
+                case "wins":          wins          = Integer.parseInt(parts[1].trim()); break;
+                case "deaths":        deaths        = Integer.parseInt(parts[1].trim()); break;
+                case "shotsFired":    shotsFired    = Integer.parseInt(parts[1].trim()); break;
+                case "shotsHit":      shotsHit      = Integer.parseInt(parts[1].trim()); break;
+                case "shotsReceived": shotsReceived = Integer.parseInt(parts[1].trim()); break;
+            }
+        }
+        out.println("[INFO] Histórico carregado: " + wins + "V/" + deaths + "D");
+
+    } catch (FileNotFoundException e) {
+        out.println("[INFO] Primeira execução — histórico zerado.");
+    } catch (Exception e) {
+        out.println("[AVISO] Histórico corrompido, ignorando: " + e.getMessage());
+        // Robô funciona normalmente, surfStats fica zerado (comportamento padrão)
+    }
+  }
+
+  /* ***************************************************************
+    * Metodo: saveSurfStats
+    * Funcao: Metodo responsavel por converter o array do surfStats em uma unica linha de texto no arquivo.
+    * Parametros: Nenhum
+    * Retorno: Nenhum
+    ***************************************************************** */
+  private void saveSurfStats(PrintStream ps) {
+    StringBuilder sb = new StringBuilder("surfStats=");
+    for (int d = 0; d < SEG_DIST; d++)
+        for (int v = 0; v < SEG_VEL; v++)
+            for (int t = 0; t < SEG_TIME; t++)
+                for (int b = 0; b < BINS; b++) {
+                    sb.append(surfStats[d][v][t][b]);
+                    if (!(d == SEG_DIST-1 && v == SEG_VEL-1
+                          && t == SEG_TIME-1 && b == BINS-1))
+                        sb.append(",");
+                }
+    ps.println(sb.toString());
+  }
+
+  /* ***************************************************************
+    * Metodo: loadSurfStats
+    * Funcao: Metodo responsavel por desconverter a linha de texto do arquivo e preenhcer o array surfStats.
+    * Parametros: Nenhum
+    * Retorno: Nenhum
+    ***************************************************************** */
+  private void loadSurfStats(String val) {
+    String[] nums = val.split(",");
+    int idx = 0;
+    for (int d = 0; d < SEG_DIST; d++)
+        for (int v = 0; v < SEG_VEL; v++)
+            for (int t = 0; t < SEG_TIME; t++)
+                for (int b = 0; b < BINS; b++) {
+                    if (idx < nums.length)
+                        surfStats[d][v][t][b] = Double.parseDouble(nums[idx++]);
+                }
+  }
+
 }
